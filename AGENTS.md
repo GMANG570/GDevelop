@@ -39,6 +39,11 @@ All of these outputs (`newIDE/app/resources/`, `public/libGD.js`,
 * `newIDE/app/package.json` `start` runs `import-resources` again, so the GDJS
   runtime is built twice on a cold first boot. Later restarts skip the install and
   build it once.
+* **Source-map warnings:** `GENERATE_SOURCEMAP=false` is set for the sandbox dev
+  server. Monaco, `GDJS-for-web-app-only` and `qr-creator` reference `.map` files
+  they don't ship, so CRA's `source-map-loader` used to print ~21
+  `Failed to parse source map … ENOENT` warnings on every compile. It costs
+  original-source mapping in browser devtools; remove that env var to get it back.
 * **Memory:** the dev server (webpack + Monaco + the whole editor) sits at ~3.5GB
   RSS and, with Node's ~4GB default heap on this 8GB sandbox, aborts with
   `FATAL ERROR: … JavaScript heap out of memory` a few minutes after starting —

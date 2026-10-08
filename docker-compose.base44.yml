@@ -29,6 +29,13 @@ services:
       - HOST=0.0.0.0
       - PORT=3000
       - BROWSER=none
+      # CRA gates its `source-map-loader` rule on GENERATE_SOURCEMAP. Monaco,
+      # GDJS-for-web-app-only and qr-creator ship `sourceMappingURL` comments
+      # without the matching .map files, so every dev compile printed 21
+      # "Failed to parse source map" warnings. Off here (sandbox dev server only;
+      # `npm run build` elsewhere is unaffected) — the trade-off is that browser
+      # devtools show the compiled bundle instead of the original sources.
+      - GENERATE_SOURCEMAP=false
       # webpack + Monaco + the whole editor need more heap than Node's ~4GB default
       # on this 8GB sandbox, otherwise the compiler aborts with
       # "JavaScript heap out of memory" a few minutes after it starts.
