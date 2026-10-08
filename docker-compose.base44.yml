@@ -1,0 +1,77 @@
+# Base44 sandbox/dev environment for GDevelop (https://github.com/4ian/GDevelop).
+#
+# Runs the GDevelop IDE (newIDE/app, a Create React App project) with
+# `react-scripts start`, from the bind-mounted source, so source edits are picked
+# up by the dev server (fast refresh) without rebuilding any image.
+#
+# Boot sequence on first start (can take several minutes, `docker compose logs -f web`):
+#   1. `npm ci` in newIDE/app. Its `postinstall` installs GDJS dependencies and runs
+#      `import-resources` (downloads the pre-built libGD.js/libGD.wasm for this commit
+#      from s3.amazonaws.com/gdevelop-gdevelop.js, builds the GDJS runtime with esbuild,
+#      copies the Monaco editor + the zipped Piskel/Jfxr/Yarn editors).
+#   2. `npm start` (= import-resources + make-version-metadata + react-scripts start),
+#      then the IDE is served on port 3000.
+#
+# All generated files (resources/, public/libGD.js, ...) are gitignored by
+# newIDE/app/.gitignore, and node_modules live in named volumes so `git status`
+# stays clean.
+
+services:
+  web:
+    image: node:20
+    working_dir: /repo/newIDE/app
+    restart: on-failure
+    ports:
+      - "3000:3000"
+    environment:
+      # Dev server must listen on all interfaces for the preview proxy (CRA
+      # defaults to HOST=0.0.0.0, kept explicit here).
+      - HOST=0.0.0.0
+      - PORT=3000
+      - BROWSER=none
+      # webpack + Monaco + the whole editor need more heap than Node's ~4GB default
+      # on this 8GB sandbox, otherwise the compiler aborts with
+      # "JavaScript heap out of memory" a few minutes after it starts.
+      - NODE_OPTIONS=--max-old-space-size=5120
+      # CRA 5.0.1 has no `proxy` config in package.json, so the dev server's host
+      # firewall is already disabled (allowedHosts: 'all'); nothing to override.
+      - BASE44_PREVIEW_MODE
+      - BASE44_SANDBOX_HOST_DOMAIN
+      - BASE44_PUBLIC_HOST_SUFFIX
+    volumes:
+      - .:/repo
+      # Dependencies live in volumes, not in the bind mount: they survive container
+      # recreations and keep the repository clean.
+      - newide-app-node-modules:/repo/newIDE/app/node_modules
+      - gdjs-node-modules:/repo/GDJS/node_modules
+    command:
+      - sh
+      - -ec
+      - |
+        # No core dumps: a crashed Node process would drop a multi-GB `core` file
+        # inside the bind-mounted repository.
+        ulimit -c 0 || true
+        cd /repo/newIDE/app
+        lock_hash="$$(md5sum package-lock.json | cut -d' ' -f1)"
+        if [ "$$(cat node_modules/.base44-lock-hash 2>/dev/null)" != "$$lock_hash" ]; then
+          echo "ℹ️ Installing GDevelop IDE dependencies (npm ci, this takes a few minutes)..."
+          npm ci --no-audit --no-fund
+          printf '%s' "$$lock_hash" > node_modules/.base44-lock-hash
+        fi
+        exec npm start
+    healthcheck:
+      # Probes the dev server itself: it must answer with the IDE HTML shell.
+      test:
+        [
+          "CMD-SHELL",
+          "curl -fsS http://127.0.0.1:3000/ | grep -q 'id=\"root\"'"
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      # Generous: first boot installs dependencies, downloads libGD.js and builds GDJS.
+      start_period: 900s
+
+volumes:
+  newide-app-node-modules:
+  gdjs-node-modules:
